@@ -1,0 +1,421 @@
+---
+title: "A Corpus-based Approach to Queer"
+author: "Blanca Gonçalves"
+date: "2025-04-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# load libraries
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(tidytext)
+library(tm)
+library(ggplot2)
+library(sentimentr)
+library(scales)
+library(patchwork)
+```
+
+```{r}
+# load the text dataset
+dfqueer1 <- read.csv(file = "COCAqueer1.csv", head = TRUE, sep = ",")
+dfqueer2 <- read.csv(file = "COCAqueer2.csv", head = TRUE, sep = ",")
+dfqueer3 <- read.csv(file = "COCAqueer3.csv", head = TRUE, sep = ",")
+dfqueer4 <- read.csv(file = "COCAqueer4.csv", head = TRUE, sep = ",")
+dfqueer5 <- read.csv(file = "COCAqueer5.csv", head = TRUE, sep = ",")
+
+dfqueer <- bind_rows(dfqueer1, dfqueer2, dfqueer3, dfqueer4, dfqueer5) %>% 
+  select(-1:-5 ) %>%
+  separate(SOURCE, into = c("corpus", "year", "source"), sep = ":", extra = "merge") %>%
+  rename(text = X.3) %>%
+  mutate(source = factor(word(source, 1)), 
+         text = str_sub(text, 15),
+         year = as.numeric(year), 
+         period = paste0(5 * floor(year/5), "-", 5 * floor(year/5) + 4)) %>%
+  select(year, period, everything(), -corpus)
+
+str(dfqueer)
+```
+
+```{r}
+# load the source frequency data
+dfqueer_source <- read.csv(file = "COCAqueerbysource.csv", head = TRUE, sep = ",") %>%
+  mutate(source = str_squish(source),
+         subsource = factor(source),
+         source = factor(str_extract(source, "^[^:]+")),
+         words = as.numeric(str_squish(words)),
+         tokens = as.numeric(str_squish(tokens))) %>%
+  select(source, subsource, everything(), -X)
+
+# load the years frequency data
+dfqueer_year <- read.csv(file = "COCAqueerbyyear.csv", head = TRUE, sep = ",") %>%
+  mutate(year = as.numeric(str_squish(year)),
+         words = as.numeric(str_squish(words)),
+         tokens = as.numeric(str_squish(tokens))) %>%
+  select(-X)
+
+str(dfqueer_source)
+str(dfqueer_year)
+```
+
+```{r}
+# explore data frequency by source
+freqbysource_png <- ggplot(dfqueer_source, aes(x = source, y = per_million)) +
+  stat_summary(fun = "mean", geom = "bar", fill = "hotpink") +
+  theme_minimal() +
+  labs(
+    title = "Average Frequency of \"Queer\" per Million Words by Source",
+    x = "Source",
+    y = "Frequency per Million") +
+  theme(
+    axis.text.x = element_text(angle = 0, hjust = 0.5),
+    panel.grid.major.x = element_blank(), 
+    text = element_text(family = "serif"),
+    axis.title.x = element_text(margin = margin(t = 15)),
+    axis.title.y = element_text(margin = margin(r = 15)),
+    axis.text = element_text(color = "black"))
+
+freqbysource_png
+ggsave("freqbysource.png", freqbysource_png, width = 12, height = 6)
+
+
+# explore top 15 specific data sources
+df_top15source <- dfqueer_source %>%
+  arrange(desc(per_million)) %>%
+  head(15)
+
+top15sources_png <- ggplot(df_top15source, aes(x = reorder(subsource, per_million), y = per_million)) +
+  geom_bar(stat = "identity", fill = "hotpink") +
+  coord_flip() +
+  theme_minimal() +
+  labs(
+    title = "   Top 15 Sources of \"Queer\" by Frequency per Million Words",
+    x = "",
+    y = "Frequency per Million") +
+  theme(
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    axis.text.y = element_text(size = 10),
+    plot.margin = margin(10, 30, 10, 10), 
+    text = element_text(family = "serif"),
+    axis.title.x = element_text(margin = margin(t = 15)),
+    axis.title.y = element_text(margin = margin(r = 15)),
+    axis.text = element_text(color = "black"))
+
+top15sources_png
+ggsave("top15sources.png", top15sources_png, width = 12, height = 6)
+
+combi_sources_png <- freqbysource_png + top15sources_png
+combi_sources_png
+ggsave("combi_sources.png", combi_sources_png, width = 12, height = 6)
+```
+
+```{r}
+# explore data frequency by period
+dfqueer_year <- dfqueer_year %>%
+  mutate(period = paste0(5 * floor(year/5), "-", 5 * floor(year/5) + 4))
+
+df_periods <- dfqueer_year %>%
+  group_by(period) %>%
+  summarize(avg_per_million = mean(per_million)) %>%
+  arrange(period)
+
+frequencyperiod_png <- ggplot(df_periods, aes(x = period, y = avg_per_million)) +
+  geom_bar(stat = "identity", fill = "hotpink") +
+  theme_minimal() +
+  labs(
+    title = "Average Frequency of \"Queer\" per Million Words by 5-Year Period",
+    x = "Time Period",
+    y = "Frequency per Million") +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid.major.x = element_blank(),  
+    text = element_text(family = "serif"),
+    axis.title.x = element_text(margin = margin(t = 15)),
+    axis.title.y = element_text(margin = margin(r = 15)),
+    axis.text = element_text(color = "black"))
+
+frequencyperiod_png
+ggsave("frequencyperiod.png", frequencyperiod_png, width = 12, height = 6)
+
+
+# explore data frequency by year
+frequencyyear_png <- ggplot(dfqueer_year, aes(x = year, y = per_million)) +
+  stat_summary(fun = "mean", geom = "bar", fill = "hotpink") +
+  theme_minimal() +
+  labs(
+    title = "Average Frequency of \"Queer\" per Million Words by Year",
+    x = "Year",
+    y = "Frequency per Million") +
+  theme(
+    axis.text.x = element_text(angle = 0, hjust = 0.5),
+    panel.grid.major.x = element_blank(), 
+    text = element_text(family = "serif"),
+    axis.title.x = element_text(margin = margin(t = 15)),
+    axis.title.y = element_text(margin = margin(r = 15)),
+    axis.text = element_text(color = "black"))
+
+frequencyyear_png
+ggsave("frequencyyear.png", frequencyyear_png, width = 12, height = 6)
+
+
+combi_yearperiod_png <- frequencyperiod_png + frequencyyear_png
+combi_yearperiod_png
+ggsave("combi_yearperiod.png", combi_yearperiod_png, width = 12, height = 6)
+```
+
+```{r}
+# explore the data frequency by source and period
+dfqueer_periodsource <- dfqueer %>%
+  count(period, source)
+
+hitssourceandperiod_png <- ggplot(dfqueer_periodsource, aes(x = period, y = n, fill = source)) +
+  theme_minimal() +
+  geom_col(color = NA ) +
+  labs(title = "Occurrences of \"Queer\" by Source and 5-Year Period",
+       x = "Time Period",
+       y = "Frequency",
+       fill = "Source") +
+  theme(
+    legend.position = "none", # uncomment for patchwork, comment for individual plot
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid.major.x = element_blank(),  
+    text = element_text(family = "serif"),
+    axis.title.x = element_text(margin = margin(t = 15)),
+    axis.title.y = element_text(margin = margin(r = 15)),
+    axis.text = element_text(color = "black"))
+
+hitssourceandperiod_png
+# ggsave("hitssourceandperiod.png", hitssourceandperiod_png, width = 12, height = 6)
+# comment when using patchwork
+
+
+# explore the data frequency by source and year
+dfqueer_yearsource <- dfqueer %>%
+  count(year, source)
+
+hitssourceandyear_png <- ggplot(dfqueer_yearsource, aes(x = year, y = n, fill = source)) +
+  theme_minimal() +
+  geom_col(color = NA ) +
+  labs(title = "Occurrences of \"Queer\" by Source and Year",
+       x = "Year",
+       y = "Frequency",
+       fill = "Source") +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid.major.x = element_blank(),  
+    text = element_text(family = "serif"),
+    axis.title.x = element_text(margin = margin(t = 15)),
+    axis.title.y = element_text(margin = margin(r = 15)),
+    axis.text = element_text(color = "black"))
+
+hitssourceandyear_png
+ggsave("hitssourceandyear.png", hitssourceandyear_png, width = 12, height = 6)
+
+
+combi_sourceyearperiod_png <- hitssourceandperiod_png + hitssourceandyear_png
+combi_sourceyearperiod_png
+ggsave("combi_sourceyearperiod.png", width = 12, height = 6)
+```
+
+
+```{r}
+# sentiment analysis with sentimentr
+dfqueer_sentiment <- dfqueer %>%
+  filter(!source %in% c("BLOG", "WEB")) %>%
+  mutate(text = tolower(text)) %>%
+  mutate(text = removePunctuation(text)) %>%
+  mutate(sentences = get_sentences(text)) %>%
+  mutate(sentiment = sentiment_by(sentences)$ave_sentiment) %>%
+  select(-sentences)
+```
+
+```{r}
+# explore average sentiment score by period and year
+df_avgsentperiod <- dfqueer_sentiment %>%
+  group_by(period) %>%
+  summarise(avg_sentiment = mean(sentiment, na.rm = TRUE), .groups = "drop")
+
+df_avgsentyear <- dfqueer_sentiment %>%
+  group_by(year) %>%
+  summarise(avg_sentiment = mean(sentiment, na.rm = TRUE), .groups = "drop")
+
+# visualise results
+avgsentperiod_png <- ggplot(
+  df_avgsentperiod, 
+  aes(x = period, y = avg_sentiment, group = 1)) +
+  geom_line(size = 1.2, color = "hotpink") +
+  geom_point(size = 2, color = "hotpink") +
+  labs(
+    title = "Average Sentiment Score of Texts with \"Queer\" by 5-Year Period", 
+    x = "Time Period", 
+    y = "Average Sentiment Score",
+    color = "Sentiment Group") +
+  theme_minimal() +
+  theme(
+    text = element_text(family = "serif"),
+    axis.title.x = element_text(margin = margin(t = 15)),
+    axis.title.y = element_text(margin = margin(r = 15)),
+    axis.text = element_text(color = "black"))
+
+avgsentperiod_png
+ggsave("avgsentperiod.png", avgsentperiod_png, width = 12, height = 6)
+
+avgsentyear_png <- ggplot(
+  df_avgsentyear, 
+  aes(x = year, y = avg_sentiment)) +
+  geom_line(size = 1.2, color = "hotpink") +
+  geom_point(size = 2, color = "hotpink") +
+  labs(
+    title = "Average Sentiment Score of Texts with \"Queer\" by Year", 
+    x = "Year", 
+    y = "Average Sentiment Score",
+    color = "Sentiment Group") +
+  theme_minimal() +
+  theme(
+    text = element_text(family = "serif"),
+    axis.title.x = element_text(margin = margin(t = 15)),
+    axis.title.y = element_text(margin = margin(r = 15)),
+    axis.text = element_text(color = "black") )
+
+avgsentyear_png
+ggsave("avgsentyear.png", avgsentyear_png, width = 12, height = 6)
+
+
+combi_avgsentyearperiod_png <- avgsentperiod_png + avgsentyear_png
+combi_avgsentyearperiod_png
+ggsave("combi_avgsentyearperiod.png", combi_avgsentyearperiod_png, width = 12, height = 6)
+```
+
+```{r}
+# explore percentage of positive and negative sentiment scores by time interval
+dfqueer_sentiment <- dfqueer_sentiment %>%
+  mutate(sentiment_group = ifelse(sentiment >= 0, "Positive", "Negative"))
+
+df_posnegpercentageperiod <- dfqueer_sentiment %>%
+  group_by(period, sentiment_group) %>%
+  summarise(count = n(), .groups = "drop_last") %>%
+  mutate(percentage = count / sum(count))
+
+  
+df_posnegpercentageyear <- dfqueer_sentiment %>%
+  group_by(year, sentiment_group) %>%
+  summarise(count = n(), .groups = "drop_last") %>%
+  mutate(percentage = (count / sum(count)) )
+
+# visualise
+posnegpercentageperiod_png <- ggplot(df_posnegpercentageperiod, aes(x = period, y = percentage, color = sentiment_group, group = sentiment_group)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 2) +
+  scale_color_manual(values = c("Positive" = "hotpink", "Negative" = "skyblue")) +
+  labs(
+    title = "Percentage of Texts with \"Queer\" by Sentiment and 5-Year Period", 
+    x = "Time Period", 
+    y = "Percentage of Texts",
+    color = "Sentiment Group") +
+  theme_minimal() +
+  scale_y_continuous(labels = percent_format()) +
+  theme(
+    legend.position = "none", # uncomment for patchwork
+    text = element_text(family = "serif"),
+    axis.title.x = element_text(margin = margin(t = 15)),
+    axis.title.y = element_text(margin = margin(r = 15)),
+    axis.text = element_text(color = "black"))
+
+posnegpercentageperiod_png
+# ggsave("posnegpercentageperiod.png", posnegpercentageperiod_png, width = 12, height = 6)
+
+posnegpercentageyear_png <- ggplot(df_posnegpercentageyear, aes(x = year, y = percentage, color = sentiment_group, group = sentiment_group)) +
+  geom_line(size = 1.2) + 
+  geom_point(size = 2) +
+  scale_color_manual(values = c("Positive" = "hotpink", "Negative" = "skyblue")) +
+  labs(
+    title = "Percentage of Texts with \"Queer\" by Sentiment and Year",
+    x = "Year", 
+    y = "Percentage of Texts",
+    color = "Sentiment Group") +
+  theme_minimal() +
+  scale_y_continuous(labels = percent_format()) +
+  theme(
+    text = element_text(family = "serif"),
+    axis.title.x = element_text(margin = margin(t = 15)),
+    axis.title.y = element_text(margin = margin(r = 15)),
+    axis.text = element_text(color = "black") )
+
+posnegpercentageyear_png
+ggsave("posnegpercentageyear.png", posnegpercentageyear_png, width = 12, height = 6)
+
+
+combi_posnegpercentageyearperiod_png <- posnegpercentageperiod_png + posnegpercentageyear_png
+combi_posnegpercentageyearperiod_png
+ggsave("combi_posnegpercentageyearperiod.png", combi_posnegpercentageyearperiod_png, width = 12, height = 6)
+```
+
+```{r}
+# explore intensity of positive and negative sentiment scores by time interval
+df_posnegabsperiod <- dfqueer_sentiment %>%
+  mutate(sentiment_abs = abs(sentiment)) %>%
+  group_by(period, sentiment_group) %>%
+  summarise(avg_sentiment = mean(sentiment_abs, na.rm = TRUE), .groups = "drop")
+
+df_posnegabsyear <- dfqueer_sentiment %>%
+  mutate(sentiment_abs = abs(sentiment)) %>%
+  group_by(year, sentiment_group) %>%
+  summarise(avg_sentiment = mean(sentiment_abs, na.rm = TRUE), .groups = "drop")
+
+# visualise
+posnegabsperiod_png <- ggplot(
+  df_posnegabsperiod, 
+  aes(x = period, y = avg_sentiment, color = sentiment_group, group = sentiment_group)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 2) +
+  scale_color_manual(values = c("Positive" = "hotpink", "Negative" = "skyblue")) +
+  labs(
+    title = "Average Sentiment Intensity by Polarity and 5-Year Period", 
+    x = "Time Period", 
+    y = "Average Intensity of Sentiment Scores",
+    color = "Sentiment Group") +
+  theme_minimal() +
+  theme(
+    legend.position = "none", # uncomment for patchwork
+    text = element_text(family = "serif"),
+    axis.title.x = element_text(margin = margin(t = 15)),
+    axis.title.y = element_text(margin = margin(r = 15)),
+    axis.text = element_text(color = "black"))
+
+posnegabsperiod_png
+# ggsave("posnegabsperiod.png", posnegabsperiod_png, width = 12, height = 6)
+
+posnegabsyear_png <- ggplot(
+  df_posnegabsyear, 
+  aes(x = year, y = avg_sentiment, color = sentiment_group, group = sentiment_group)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 2) +
+  scale_color_manual(values = c("Positive" = "hotpink", "Negative" = "skyblue")) +
+  labs(
+    title = "Average Sentiment Intensity by Polarity and Year", 
+    x = "Year", 
+    y = "Average Intensity of Sentiment Scores",
+    color = "Sentiment Group") +
+  theme_minimal() +
+  theme(
+    text = element_text(family = "serif"),
+    axis.title.x = element_text(margin = margin(t = 15)),
+    axis.title.y = element_text(margin = margin(r = 15)),
+    axis.text = element_text(color = "black") )
+
+posnegabsyear_png
+ggsave("posnegabsyear.png", posnegabsyear_png, width = 12, height = 6)
+
+
+combi_posnegabsyearperiod_png <- posnegabsperiod_png + posnegabsyear_png
+combi_posnegabsyearperiod_png
+ggsave("combi_posnegabsyearperiod.png", combi_posnegabsyearperiod_png, width = 12, height = 6)
+```
+
